@@ -17,11 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bilibili/kratos/pkg/conf/env"
-	"github.com/bilibili/kratos/pkg/net/metadata"
-	"github.com/bilibili/kratos/pkg/net/netutil/breaker"
-	"github.com/bilibili/kratos/pkg/stat"
-	xtime "github.com/bilibili/kratos/pkg/time"
+	"github.com/go-kratos/kratos/pkg/conf/env"
+	"github.com/go-kratos/kratos/pkg/net/metadata"
+	"github.com/go-kratos/kratos/pkg/net/netutil/breaker"
+	xtime "github.com/go-kratos/kratos/pkg/time"
 
 	"github.com/gogo/protobuf/proto"
 	pkgerr "github.com/pkg/errors"
@@ -33,7 +32,6 @@ const (
 
 var (
 	_noKickUserAgent = "blademaster"
-	clientStats      = stat.HTTPClient
 )
 
 func init() {
@@ -215,16 +213,16 @@ func (client *Client) Raw(c context.Context, req *xhttp.Request, v ...string) (b
 	brk := client.breaker.Get(uri)
 	if err = brk.Allow(); err != nil {
 		code = "breaker"
-		clientStats.Incr(uri, code)
+		_metricClientReqCodeTotal.Inc(uri, req.Method, code)
 		return
 	}
 	defer client.onBreaker(brk, &err)
 	// stat
 	now := time.Now()
 	defer func() {
-		clientStats.Timing(uri, int64(time.Since(now)/time.Millisecond))
+		_metricClientReqDur.Observe(int64(time.Since(now)/time.Millisecond), uri, req.Method)
 		if code != "" {
-			clientStats.Incr(uri, code)
+			_metricClientReqCodeTotal.Inc(uri, req.Method, code)
 		}
 	}()
 	// get config

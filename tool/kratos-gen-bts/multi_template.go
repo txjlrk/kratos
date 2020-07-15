@@ -2,15 +2,19 @@ package main
 
 var _multiTemplate = `
 // NAME {{or .Comment "get data from cache if miss will call source method, then add to cache."}} 
-func (d *Dao) NAME(c context.Context, {{.IDName}} []KEY{{.ExtraArgsType}}) (res map[KEY]VALUE, err error) {
+func (d *{{.StructName}}) NAME(c context.Context, {{.IDName}} []KEY{{.ExtraArgsType}}) (res map[KEY]VALUE, err error) {
 	if len({{.IDName}}) == 0 {
 		return
 	}
 	addCache := true
 	if res, err = CACHEFUNC(c, {{.IDName}} {{.ExtraCacheArgs}});err != nil {
+		{{if .CacheErrContinue}}
 		addCache = false
 		res = nil
 		err = nil
+		{{else}}
+		return
+		{{end}}
 	}
 	var miss []KEY
 	for _, key := range {{.IDName}} {
@@ -26,7 +30,7 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} []KEY{{.ExtraArgsType}}) (res 
 			miss = append(miss, key)
 		}
 	}
-	prom.CacheHit.Add("NAME", int64(len({{.IDName}}) - len(miss)))
+	cache.MetricHits.Add(float64(len({{.IDName}}) - len(miss)), "bts:NAME")
 	{{if .EnableNullCache}}
 	for k, v := range res {
 		{{if .SimpleValue}} if v == {{.NullCache}} { {{else}} if {{.CheckNullCode}} { {{end}}
@@ -47,14 +51,14 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} []KEY{{.ExtraArgsType}}) (res 
 		var rr interface{}
 		sf := d.cacheSFNAME({{.IDName}} {{.ExtraArgs}})
 		rr, err, _ = cacheSingleFlights[SFNUM].Do(sf, func() (r interface{}, e error) {
-			prom.CacheMiss.Add("NAME", int64(len(miss)))
+			cache.MetricMisses.Add(float64(len(miss)), "bts:NAME")
 			r, e = RAWFUNC(c, miss {{.ExtraRawArgs}})
 			return
 		})
 		missData = rr.(map[KEY]VALUE)
 	{{else}}
 		{{if .EnableBatch}}
-			prom.CacheMiss.Add("NAME", int64(missLen))
+			cache.MetricMisses.Add(float64(missLen), "bts:NAME")
 			var mutex sync.Mutex
 			{{if .BatchErrBreak}}
 				group := errgroup.WithCancel(c)
@@ -87,7 +91,7 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} []KEY{{.ExtraArgsType}}) (res 
 			}
 			err = group.Wait()
 		{{else}}
-			prom.CacheMiss.Add("NAME", int64(len(miss)))
+			cache.MetricMisses.Add(float64(len(miss)), "bts:NAME")
 			missData, err = RAWFUNC(c, miss {{.ExtraRawArgs}})
 		{{end}}
 	{{end}}

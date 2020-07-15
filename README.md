@@ -1,9 +1,9 @@
 ![kratos](doc/img/kratos3.png)
 
 [![Language](https://img.shields.io/badge/Language-Go-blue.svg)](https://golang.org/)
-[![Build Status](https://travis-ci.org/bilibili/kratos.svg?branch=master)](https://travis-ci.org/bilibili/kratos)
-[![GoDoc](https://godoc.org/github.com/bilibili/kratos?status.svg)](https://godoc.org/github.com/bilibili/kratos)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bilibili/kratos)](https://goreportcard.com/report/github.com/bilibili/kratos)
+[![Build Status](https://github.com/go-kratos/kratos/workflows/Go/badge.svg)](https://github.com/go-kratos/kratos/actions)
+[![GoDoc](https://godoc.org/github.com/go-kratos/kratos?status.svg)](https://godoc.org/github.com/go-kratos/kratos)
+[![Go Report Card](https://goreportcard.com/badge/github.com/go-kratos/kratos)](https://goreportcard.com/report/github.com/go-kratos/kratos)
 
 # Kratos
 
@@ -29,16 +29,16 @@ Kratos是[bilibili](https://www.bilibili.com)开源的一套Go微服务框架，
 
 ### Requirments
 
-Go version>=1.12 and GO111MODULE=on
+Go version>=1.13
 
 ### Installation
 ```shell
-go get -u github.com/bilibili/kratos/tool/kratos
+GO111MODULE=on && go get -u github.com/go-kratos/kratos/tool/kratos
 cd $GOPATH/src
 kratos new kratos-demo
 ```
 
-通过 `kratos new` 会快速生成基于kratos库的脚手架代码，如生成 [kratos-demo](https://github.com/bilibili/kratos-demo) 
+通过 `kratos new` 会快速生成基于kratos库的脚手架代码，如生成 [kratos-demo](https://github.com/go-kratos/kratos-demo) 
 
 ### Build & Run
 
@@ -54,7 +54,8 @@ go build
 
 ## Documentation
 
-[简体中文](doc/wiki-cn/summary.md)
+> [简体中文](doc/wiki-cn/summary.md)  
+> [FAQ](doc/wiki-cn/FAQ.md)  
 
 ## License
 Kratos is under the MIT license. See the [LICENSE](./LICENSE) file for details.

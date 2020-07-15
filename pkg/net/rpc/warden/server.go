@@ -10,19 +10,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bilibili/kratos/pkg/conf/dsn"
-	"github.com/bilibili/kratos/pkg/log"
-	nmd "github.com/bilibili/kratos/pkg/net/metadata"
-	"github.com/bilibili/kratos/pkg/net/rpc/warden/ratelimiter"
-	"github.com/bilibili/kratos/pkg/net/trace"
-	xtime "github.com/bilibili/kratos/pkg/time"
+	"github.com/go-kratos/kratos/pkg/conf/dsn"
+	"github.com/go-kratos/kratos/pkg/log"
+	nmd "github.com/go-kratos/kratos/pkg/net/metadata"
+	"github.com/go-kratos/kratos/pkg/net/rpc/warden/ratelimiter"
+	"github.com/go-kratos/kratos/pkg/net/trace"
+	xtime "github.com/go-kratos/kratos/pkg/time"
 
 	//this package is for json format response
-	_ "github.com/bilibili/kratos/pkg/net/rpc/warden/internal/encoding/json"
-	"github.com/bilibili/kratos/pkg/net/rpc/warden/internal/status"
+	_ "github.com/go-kratos/kratos/pkg/net/rpc/warden/internal/encoding/json"
+	"github.com/go-kratos/kratos/pkg/net/rpc/warden/internal/status"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip" // NOTE: use grpc gzip by header grpc-accept-encoding
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -35,7 +36,7 @@ var (
 		Network:           "tcp",
 		Addr:              "0.0.0.0:9000",
 		Timeout:           xtime.Duration(time.Second),
-		IdleTimeout:       xtime.Duration(time.Second * 60),
+		IdleTimeout:       xtime.Duration(time.Second * 180),
 		MaxLifeTime:       xtime.Duration(time.Hour * 2),
 		ForceCloseWait:    xtime.Duration(time.Second * 20),
 		KeepAliveInterval: xtime.Duration(time.Second * 60),
@@ -110,6 +111,7 @@ func (s *Server) handle() grpc.UnaryServerInterceptor {
 		var t trace.Trace
 		cmd := nmd.MD{}
 		if gmd, ok := metadata.FromIncomingContext(ctx); ok {
+			t, _ = trace.Extract(trace.GRPCFormat, gmd)
 			for key, vals := range gmd {
 				if nmd.IsIncomingKey(key) {
 					cmd[key] = vals[0]
@@ -300,17 +302,38 @@ func (s *Server) RunUnix(file string) error {
 // will panic if any error happend
 // return server itself
 func (s *Server) Start() (*Server, error) {
+	_, err := s.startWithAddr()
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// StartWithAddr create a new goroutine run server with configured listen addr
+// will panic if any error happend
+// return server itself and the actually listened address (if configured listen
+// port is zero, the os will allocate an unused port)
+func (s *Server) StartWithAddr() (*Server, net.Addr, error) {
+	addr, err := s.startWithAddr()
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, addr, nil
+}
+
+func (s *Server) startWithAddr() (net.Addr, error) {
 	lis, err := net.Listen(s.conf.Network, s.conf.Addr)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("warden: start grpc listen addr: %v", lis.Addr())
 	reflection.Register(s.server)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			panic(err)
 		}
 	}()
-	return s, nil
+	return lis.Addr(), nil
 }
 
 // Serve accepts incoming connections on the listener lis, creating a new

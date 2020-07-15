@@ -2,12 +2,16 @@ package main
 
 var _noneTemplate = `
 // NAME {{or .Comment "get data from cache if miss will call source method, then add to cache."}} 
-func (d *Dao) NAME(c context.Context) (res VALUE, err error) {
+func (d *{{.StructName}}) NAME(c context.Context) (res VALUE, err error) {
 	addCache := true
 	res, err = CACHEFUNC(c)
 	if err != nil {
+		{{if .CacheErrContinue}}
 		addCache = false
 		err = nil
+		{{else}}
+		return
+		{{end}}
 	}
 	{{if .EnableNullCache}}
 	defer func() {
@@ -21,20 +25,20 @@ func (d *Dao) NAME(c context.Context) (res VALUE, err error) {
 	{{else}}
 	if res != {{.ZeroValue}} {
 	{{end}}
-	prom.CacheHit.Incr("NAME")
+	cache.MetricHits.Inc("bts:NAME")
 		return
 	}
 	{{if .EnableSingleFlight}}
 		var rr interface{}
 		sf := d.cacheSFNAME()
 		rr, err, _ = cacheSingleFlights[SFNUM].Do(sf, func() (r interface{}, e error) {
-			prom.CacheMiss.Incr("NAME")
+			cache.MetricMisses.Inc("bts:NAME")
 			r, e = RAWFUNC(c)
 			return
 		})
 		res = rr.(VALUE)
 	{{else}}
-		prom.CacheMiss.Incr("NAME")
+		cache.MetricMisses.Inc("bts:NAME")
 		res, err = RAWFUNC(c)
 	{{end}}
 	if err != nil {

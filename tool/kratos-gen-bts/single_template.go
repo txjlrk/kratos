@@ -2,12 +2,16 @@ package main
 
 var _singleTemplate = `
 // NAME {{or .Comment "get data from cache if miss will call source method, then add to cache."}} 
-func (d *Dao) NAME(c context.Context, {{.IDName}} KEY{{.ExtraArgsType}}) (res VALUE, err error) {
+func (d *{{.StructName}}) NAME(c context.Context, {{.IDName}} KEY{{.ExtraArgsType}}) (res VALUE, err error) {
 	addCache := true
 	res, err = CACHEFUNC(c, {{.IDName}} {{.ExtraCacheArgs}})
 	if err != nil {
+		{{if .CacheErrContinue}}
 		addCache = false
 		err = nil
+		{{else}}
+		return
+		{{end}}
 	}
 	{{if .EnableNullCache}}
 	defer func() {
@@ -21,7 +25,7 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} KEY{{.ExtraArgsType}}) (res VA
 	{{else}}
 	if res != {{.ZeroValue}} {
 	{{end}}
-	prom.CacheHit.Incr("NAME")
+	cache.MetricHits.Inc("bts:NAME")
 		return
 	}
 	{{if .EnablePaging}}
@@ -31,7 +35,7 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} KEY{{.ExtraArgsType}}) (res VA
 		var rr interface{}
 		sf := d.cacheSFNAME({{.IDName}} {{.ExtraArgs}})
 		rr, err, _ = cacheSingleFlights[SFNUM].Do(sf, func() (r interface{}, e error) {
-			prom.CacheMiss.Incr("NAME")
+			cache.MetricMisses.Inc("bts:NAME")
 			{{if .EnablePaging}}
 				var rrs [2]interface{}
 				rrs[0], rrs[1], e = RAWFUNC(c, {{.IDName}} {{.ExtraRawArgs}})
@@ -48,7 +52,7 @@ func (d *Dao) NAME(c context.Context, {{.IDName}} KEY{{.ExtraArgsType}}) (res VA
 			res = rr.(VALUE)
 		{{end}}
 	{{else}}
-		prom.CacheMiss.Incr("NAME")
+		cache.MetricMisses.Inc("bts:NAME")
 		{{if .EnablePaging}}
 		res, miss, err = RAWFUNC(c, {{.IDName}} {{.ExtraRawArgs}})
 		{{else}}

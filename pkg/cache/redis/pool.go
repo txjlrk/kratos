@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bilibili/kratos/pkg/container/pool"
-	"github.com/bilibili/kratos/pkg/net/trace"
-	xtime "github.com/bilibili/kratos/pkg/time"
+	"github.com/go-kratos/kratos/pkg/container/pool"
+	"github.com/go-kratos/kratos/pkg/net/trace"
+	xtime "github.com/go-kratos/kratos/pkg/time"
 )
 
 var beginTime, _ = time.Parse("2006-01-02 15:04:05", "2006-01-02 15:04:05")
@@ -41,19 +41,8 @@ type Pool struct {
 	*pool.Slice
 	// config
 	c *Config
-}
-
-// Config client settings.
-type Config struct {
-	*pool.Config
-
-	Name         string // redis name, for trace
-	Proto        string
-	Addr         string
-	Auth         string
-	DialTimeout  xtime.Duration
-	ReadTimeout  xtime.Duration
-	WriteTimeout xtime.Duration
+	// statfunc
+	statfunc func(name, addr, cmd string, t time.Time, err error) func()
 }
 
 // NewPool creates a new pool.
@@ -61,24 +50,31 @@ func NewPool(c *Config, options ...DialOption) (p *Pool) {
 	if c.DialTimeout <= 0 || c.ReadTimeout <= 0 || c.WriteTimeout <= 0 {
 		panic("must config redis timeout")
 	}
+	if c.SlowLog <= 0 {
+		c.SlowLog = xtime.Duration(250 * time.Millisecond)
+	}
+	ops := []DialOption{
+		DialConnectTimeout(time.Duration(c.DialTimeout)),
+		DialReadTimeout(time.Duration(c.ReadTimeout)),
+		DialWriteTimeout(time.Duration(c.WriteTimeout)),
+		DialPassword(c.Auth),
+	}
+	ops = append(ops, options...)
 	p1 := pool.NewSlice(c.Config)
-	cnop := DialConnectTimeout(time.Duration(c.DialTimeout))
-	options = append(options, cnop)
-	rdop := DialReadTimeout(time.Duration(c.ReadTimeout))
-	options = append(options, rdop)
-	wrop := DialWriteTimeout(time.Duration(c.WriteTimeout))
-	options = append(options, wrop)
-	auop := DialPassword(c.Auth)
-	options = append(options, auop)
+
 	// new pool
 	p1.New = func(ctx context.Context) (io.Closer, error) {
-		conn, err := Dial(c.Proto, c.Addr, options...)
+		conn, err := Dial(c.Proto, c.Addr, ops...)
 		if err != nil {
 			return nil, err
 		}
-		return &traceConn{Conn: conn, connTags: []trace.Tag{trace.TagString(trace.TagPeerAddress, c.Addr)}}, nil
+		return &traceConn{
+			Conn:             conn,
+			connTags:         []trace.Tag{trace.TagString(trace.TagPeerAddress, c.Addr)},
+			slowLogThreshold: time.Duration(c.SlowLog),
+		}, nil
 	}
-	p = &Pool{Slice: p1, c: c}
+	p = &Pool{Slice: p1, c: c, statfunc: pstat}
 	return
 }
 
@@ -93,7 +89,7 @@ func (p *Pool) Get(ctx context.Context) Conn {
 		return errorConnection{err}
 	}
 	c1, _ := c.(Conn)
-	return &pooledConnection{p: p, c: c1.WithContext(ctx), ctx: ctx, now: beginTime}
+	return &pooledConnection{p: p, c: c1.WithContext(ctx), rc: c1, now: beginTime}
 }
 
 // Close releases the resources used by the pool.
@@ -103,12 +99,12 @@ func (p *Pool) Close() error {
 
 type pooledConnection struct {
 	p     *Pool
+	rc    Conn
 	c     Conn
 	state int
 
 	now  time.Time
 	cmds []string
-	ctx  context.Context
 }
 
 var (
@@ -125,6 +121,24 @@ func initSentinel() {
 		io.WriteString(h, "Oops, rand failed. Use time instead.")
 		io.WriteString(h, strconv.FormatInt(time.Now().UnixNano(), 10))
 		sentinel = h.Sum(nil)
+	}
+}
+
+// SetStatFunc set stat func.
+func (p *Pool) SetStatFunc(fn func(name, addr, cmd string, t time.Time, err error) func()) {
+	p.statfunc = fn
+}
+
+func pstat(name, addr, cmd string, t time.Time, err error) func() {
+	return func() {
+		_metricReqDur.Observe(int64(time.Since(t)/time.Millisecond), name, addr, cmd)
+		if err != nil {
+			if msg := formatErr(err, name, addr); msg != "" {
+				_metricReqErr.Inc(name, addr, cmd, msg)
+			}
+			return
+		}
+		_metricHits.Inc(name, addr)
 	}
 }
 
@@ -162,7 +176,7 @@ func (pc *pooledConnection) Close() error {
 		}
 	}
 	_, err := c.Do("")
-	pc.p.Slice.Put(context.Background(), c, pc.state != 0 || c.Err() != nil)
+	pc.p.Slice.Put(context.Background(), pc.rc, pc.state != 0 || c.Err() != nil)
 	return err
 }
 
@@ -171,9 +185,13 @@ func (pc *pooledConnection) Err() error {
 }
 
 func (pc *pooledConnection) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
+	now := time.Now()
 	ci := LookupCommandInfo(commandName)
 	pc.state = (pc.state | ci.Set) &^ ci.Clear
 	reply, err = pc.c.Do(commandName, args...)
+	if pc.p.statfunc != nil {
+		pc.p.statfunc(pc.p.c.Name, pc.p.c.Addr, commandName, now, err)()
+	}
 	return
 }
 
@@ -195,13 +213,16 @@ func (pc *pooledConnection) Flush() error {
 func (pc *pooledConnection) Receive() (reply interface{}, err error) {
 	reply, err = pc.c.Receive()
 	if len(pc.cmds) > 0 {
+		cmd := pc.cmds[0]
 		pc.cmds = pc.cmds[1:]
+		if pc.p.statfunc != nil {
+			pc.p.statfunc(pc.p.c.Name, pc.p.c.Addr, cmd, pc.now, err)()
+		}
 	}
 	return
 }
 
 func (pc *pooledConnection) WithContext(ctx context.Context) Conn {
-	pc.ctx = ctx
 	return pc
 }
 

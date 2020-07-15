@@ -6,8 +6,8 @@
   type _bts interface {
 		// bts: -batch=2 -max_group=20 -batch_err=break -nullcache=&Demo{ID:-1} -check_null_code=$.ID==-1
 		Demos(c context.Context, keys []int64) (map[int64]*Demo, error)
-	    // bts: -batch=2 -max_group=20 -batch_err=continue -nullcache=&Demo{ID:-1} -check_null_code=$.ID==-1
-	    Demos1(c context.Context, keys []int64) (map[int64]*Demo, error)
+		// bts: -batch=2 -max_group=20 -batch_err=continue -nullcache=&Demo{ID:-1} -check_null_code=$.ID==-1
+		Demos1(c context.Context, keys []int64) (map[int64]*Demo, error)
 		// bts: -sync=true -nullcache=&Demo{ID:-1} -check_null_code=$.ID==-1
 		Demo(c context.Context, key int64) (*Demo, error)
 		// bts: -paging=true
@@ -23,14 +23,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/bilibili/kratos/pkg/stat/prom"
-	"github.com/bilibili/kratos/pkg/sync/errgroup"
+	"github.com/go-kratos/kratos/pkg/cache"
+	"github.com/go-kratos/kratos/pkg/sync/errgroup"
 )
 
 var _ _bts
 
 // Demos get data from cache if miss will call source method, then add to cache.
-func (d *Dao) Demos(c context.Context, keys []int64) (res map[int64]*Demo, err error) {
+func (d *dao) Demos(c context.Context, keys []int64) (res map[int64]*Demo, err error) {
 	if len(keys) == 0 {
 		return
 	}
@@ -46,7 +46,7 @@ func (d *Dao) Demos(c context.Context, keys []int64) (res map[int64]*Demo, err e
 			miss = append(miss, key)
 		}
 	}
-	prom.CacheHit.Add("Demos", int64(len(keys)-len(miss)))
+	cache.MetricHits.Add(float64(len(keys)-len(miss)), "bts:Demos")
 	for k, v := range res {
 		if v.ID == -1 {
 			delete(res, k)
@@ -57,7 +57,7 @@ func (d *Dao) Demos(c context.Context, keys []int64) (res map[int64]*Demo, err e
 		return
 	}
 	missData := make(map[int64]*Demo, missLen)
-	prom.CacheMiss.Add("Demos", int64(missLen))
+	cache.MetricMisses.Add(float64(missLen), "bts:Demos")
 	var mutex sync.Mutex
 	group := errgroup.WithCancel(c)
 	if missLen > 20 {
@@ -109,7 +109,7 @@ func (d *Dao) Demos(c context.Context, keys []int64) (res map[int64]*Demo, err e
 }
 
 // Demos1 get data from cache if miss will call source method, then add to cache.
-func (d *Dao) Demos1(c context.Context, keys []int64) (res map[int64]*Demo, err error) {
+func (d *dao) Demos1(c context.Context, keys []int64) (res map[int64]*Demo, err error) {
 	if len(keys) == 0 {
 		return
 	}
@@ -125,7 +125,7 @@ func (d *Dao) Demos1(c context.Context, keys []int64) (res map[int64]*Demo, err 
 			miss = append(miss, key)
 		}
 	}
-	prom.CacheHit.Add("Demos1", int64(len(keys)-len(miss)))
+	cache.MetricHits.Add(float64(len(keys)-len(miss)), "bts:Demos1")
 	for k, v := range res {
 		if v.ID == -1 {
 			delete(res, k)
@@ -136,7 +136,7 @@ func (d *Dao) Demos1(c context.Context, keys []int64) (res map[int64]*Demo, err 
 		return
 	}
 	missData := make(map[int64]*Demo, missLen)
-	prom.CacheMiss.Add("Demos1", int64(missLen))
+	cache.MetricMisses.Add(float64(missLen), "bts:Demos1")
 	var mutex sync.Mutex
 	group := errgroup.WithContext(c)
 	if missLen > 20 {
@@ -188,7 +188,7 @@ func (d *Dao) Demos1(c context.Context, keys []int64) (res map[int64]*Demo, err 
 }
 
 // Demo get data from cache if miss will call source method, then add to cache.
-func (d *Dao) Demo(c context.Context, key int64) (res *Demo, err error) {
+func (d *dao) Demo(c context.Context, key int64) (res *Demo, err error) {
 	addCache := true
 	res, err = d.CacheDemo(c, key)
 	if err != nil {
@@ -201,10 +201,10 @@ func (d *Dao) Demo(c context.Context, key int64) (res *Demo, err error) {
 		}
 	}()
 	if res != nil {
-		prom.CacheHit.Incr("Demo")
+		cache.MetricHits.Inc("bts:Demo")
 		return
 	}
-	prom.CacheMiss.Incr("Demo")
+	cache.MetricMisses.Inc("bts:Demo")
 	res, err = d.RawDemo(c, key)
 	if err != nil {
 		return
@@ -221,7 +221,7 @@ func (d *Dao) Demo(c context.Context, key int64) (res *Demo, err error) {
 }
 
 // Demo1 get data from cache if miss will call source method, then add to cache.
-func (d *Dao) Demo1(c context.Context, key int64, pn int, ps int) (res *Demo, err error) {
+func (d *dao) Demo1(c context.Context, key int64, pn int, ps int) (res *Demo, err error) {
 	addCache := true
 	res, err = d.CacheDemo1(c, key, pn, ps)
 	if err != nil {
@@ -229,11 +229,11 @@ func (d *Dao) Demo1(c context.Context, key int64, pn int, ps int) (res *Demo, er
 		err = nil
 	}
 	if res != nil {
-		prom.CacheHit.Incr("Demo1")
+		cache.MetricHits.Inc("bts:Demo1")
 		return
 	}
 	var miss *Demo
-	prom.CacheMiss.Incr("Demo1")
+	cache.MetricMisses.Inc("bts:Demo1")
 	res, miss, err = d.RawDemo1(c, key, pn, ps)
 	if err != nil {
 		return
@@ -248,7 +248,7 @@ func (d *Dao) Demo1(c context.Context, key int64, pn int, ps int) (res *Demo, er
 }
 
 // None get data from cache if miss will call source method, then add to cache.
-func (d *Dao) None(c context.Context) (res *Demo, err error) {
+func (d *dao) None(c context.Context) (res *Demo, err error) {
 	addCache := true
 	res, err = d.CacheNone(c)
 	if err != nil {
@@ -261,10 +261,10 @@ func (d *Dao) None(c context.Context) (res *Demo, err error) {
 		}
 	}()
 	if res != nil {
-		prom.CacheHit.Incr("None")
+		cache.MetricHits.Inc("bts:None")
 		return
 	}
-	prom.CacheMiss.Incr("None")
+	cache.MetricMisses.Inc("bts:None")
 	res, err = d.RawNone(c)
 	if err != nil {
 		return

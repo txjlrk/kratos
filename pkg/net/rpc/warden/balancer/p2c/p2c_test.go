@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bilibili/kratos/pkg/conf/env"
+	"github.com/go-kratos/kratos/pkg/conf/env"
 
-	nmd "github.com/bilibili/kratos/pkg/net/metadata"
-	wmeta "github.com/bilibili/kratos/pkg/net/rpc/warden/internal/metadata"
+	nmd "github.com/go-kratos/kratos/pkg/net/metadata"
+	wmeta "github.com/go-kratos/kratos/pkg/net/rpc/warden/internal/metadata"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
@@ -30,12 +30,12 @@ var extraDelay int64
 var extraWeight uint64
 
 func init() {
-	flag.IntVar(&serverNum, "snum", 5, "-snum 6")
-	flag.IntVar(&cliNum, "cnum", 5, "-cnum 12")
-	flag.IntVar(&concurrency, "concurrency", 5, "-cc 10")
+	flag.IntVar(&serverNum, "snum", 6, "-snum 6")
+	flag.IntVar(&cliNum, "cnum", 12, "-cnum 12")
+	flag.IntVar(&concurrency, "concurrency", 10, "-cc 10")
 	flag.Int64Var(&extraLoad, "exload", 3, "-exload 3")
-	flag.Int64Var(&extraDelay, "exdelay", 0, "-exdelay 250")
-	flag.Uint64Var(&extraWeight, "extraWeight", 0, "-exdelay 50")
+	flag.Int64Var(&extraDelay, "exdelay", 250, "-exdelay 250")
+	flag.Uint64Var(&extraWeight, "extraWeight", 50, "-exdelay 50")
 }
 
 type testSubConn struct {
@@ -157,7 +157,7 @@ func TestBalancerPick(t *testing.T) {
 	picker := b.Build(scs)
 	res := []string{"test1", "test1", "test1", "test1"}
 	for i := 0; i < 3; i++ {
-		conn, _, err := picker.Pick(context.Background(), balancer.PickOptions{})
+		conn, _, err := picker.Pick(context.Background(), balancer.PickInfo{})
 		if err != nil {
 			t.Fatalf("picker.Pick failed!idx:=%d", i)
 		}
@@ -169,7 +169,7 @@ func TestBalancerPick(t *testing.T) {
 
 	ctx := nmd.NewContext(context.Background(), nmd.New(map[string]interface{}{"color": "black"}))
 	for i := 0; i < 4; i++ {
-		conn, _, err := picker.Pick(ctx, balancer.PickOptions{})
+		conn, _, err := picker.Pick(ctx, balancer.PickInfo{})
 		if err != nil {
 			t.Fatalf("picker.Pick failed!idx:=%d", i)
 		}
@@ -182,7 +182,7 @@ func TestBalancerPick(t *testing.T) {
 	env.Color = "purple"
 	ctx2 := context.Background()
 	for i := 0; i < 4; i++ {
-		conn, _, err := picker.Pick(ctx2, balancer.PickOptions{})
+		conn, _, err := picker.Pick(ctx2, balancer.PickInfo{})
 		if err != nil {
 			t.Fatalf("picker.Pick failed!idx:=%d", i)
 		}
@@ -205,7 +205,7 @@ func Benchmark_Wrr(b *testing.B) {
 	}
 	wpb := &p2cPickerBuilder{}
 	picker := wpb.Build(scs)
-	opt := balancer.PickOptions{}
+	opt := balancer.PickInfo{}
 	ctx := context.Background()
 	for idx := 0; idx < b.N; idx++ {
 		_, done, err := picker.Pick(ctx, opt)
@@ -217,7 +217,7 @@ func Benchmark_Wrr(b *testing.B) {
 
 func TestChaosPick(t *testing.T) {
 	flag.Parse()
-	fmt.Printf("start chaos test!svrNum:%d cliNum:%d concurrency:%d exLoad:%d exDelay:%d\n", serverNum, cliNum, concurrency, extraLoad, extraDelay)
+	t.Logf("start chaos test!svrNum:%d cliNum:%d concurrency:%d exLoad:%d exDelay:%d\n", serverNum, cliNum, concurrency, extraLoad, extraDelay)
 	c := newController(serverNum, cliNum)
 	c.launch(concurrency)
 	go c.updateStatics()
@@ -262,7 +262,7 @@ type controller struct {
 }
 
 func (c *controller) launch(concurrency int) {
-	opt := balancer.PickOptions{}
+	opt := balancer.PickInfo{}
 	bkg := context.Background()
 	for i := range c.clients {
 		for j := 0; j < concurrency; j++ {

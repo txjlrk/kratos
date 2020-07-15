@@ -2,11 +2,13 @@ package paladin
 
 import (
 	"encoding"
+	"encoding/json"
 	"reflect"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
+	yaml "gopkg.in/yaml.v2"
 )
 
 // ErrNotExist value key not exist.
@@ -21,6 +23,14 @@ type Value struct {
 	val   interface{}
 	slice interface{}
 	raw   string
+}
+
+// NewValue new a value
+func NewValue(val interface{}, raw string) *Value {
+	return &Value{
+		val: val,
+		raw: raw,
+	}
 }
 
 // Bool return bool value.
@@ -110,7 +120,7 @@ func (v *Value) Raw() (string, error) {
 	return v.raw, nil
 }
 
-// Slice scan a slcie interface, if slice has element it will be discard.
+// Slice scan a slice interface, if slice has element it will be discard.
 func (v *Value) Slice(dst interface{}) error {
 	// NOTE: val is []interface{}, slice is []type
 	if v.val == nil {
@@ -154,4 +164,22 @@ func (v *Value) UnmarshalTOML(dst interface{}) error {
 		return err
 	}
 	return toml.Unmarshal([]byte(text), dst)
+}
+
+// UnmarshalJSON unmarhsal json to struct.
+func (v *Value) UnmarshalJSON(dst interface{}) error {
+	text, err := v.Raw()
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal([]byte(text), dst)
+}
+
+// UnmarshalYAML unmarshal yaml to struct.
+func (v *Value) UnmarshalYAML(dst interface{}) error {
+	text, err := v.Raw()
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal([]byte(text), dst)
 }

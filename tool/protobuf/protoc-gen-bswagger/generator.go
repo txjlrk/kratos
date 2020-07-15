@@ -3,14 +3,15 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 
-	"github.com/bilibili/kratos/tool/protobuf/pkg/gen"
-	"github.com/bilibili/kratos/tool/protobuf/pkg/generator"
-	"github.com/bilibili/kratos/tool/protobuf/pkg/naming"
-	"github.com/bilibili/kratos/tool/protobuf/pkg/tag"
-	"github.com/bilibili/kratos/tool/protobuf/pkg/typemap"
+	"github.com/go-kratos/kratos/tool/protobuf/pkg/gen"
+	"github.com/go-kratos/kratos/tool/protobuf/pkg/generator"
+	"github.com/go-kratos/kratos/tool/protobuf/pkg/naming"
+	"github.com/go-kratos/kratos/tool/protobuf/pkg/tag"
+	"github.com/go-kratos/kratos/tool/protobuf/pkg/typemap"
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"
 	plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
 )
@@ -66,7 +67,7 @@ func (t *swaggerGen) generateSwagger(file *descriptor.FileDescriptorProto) *plug
 	t.defsMap = map[string]*typemap.MessageDefinition{}
 
 	out := &plugin.CodeGeneratorResponse_File{}
-	name := naming.GoFileName(file, ".swagger.json")
+	name := naming.GenFileName(file, ".swagger.json")
 	for _, svc := range file.Service {
 		for _, meth := range svc.Method {
 			if !t.ShouldGenForMethod(file, svc, meth) {
@@ -74,7 +75,9 @@ func (t *swaggerGen) generateSwagger(file *descriptor.FileDescriptorProto) *plug
 			}
 			apiInfo := t.GetHttpInfoCached(file, svc, meth)
 			pathItem := swaggerPathItemObject{}
-
+			if originPathItem, ok := swaggerObj.Paths[apiInfo.Path]; ok {
+				pathItem = originPathItem
+			}
 			op := t.getOperationByHTTPMethod(apiInfo.HttpMethod, &pathItem)
 			op.Summary = apiInfo.Title
 			op.Description = apiInfo.Description
@@ -164,7 +167,7 @@ func (t *swaggerGen) getOperationByHTTPMethod(httpMethod string, pathItem *swagg
 	case http.MethodPut:
 		pathItem.Put = op
 	case http.MethodDelete:
-		pathItem.Put = op
+		pathItem.Delete = op
 	case http.MethodPatch:
 		pathItem.Patch = op
 	default:
@@ -182,6 +185,12 @@ func (t *swaggerGen) getQueryParameter(file *descriptor.FileDescriptorProto,
 	cleanComment := tag.GetCommentWithoutTag(fComment.Leading)
 
 	p.Description = strings.Trim(strings.Join(cleanComment, "\n"), "\n\r ")
+	validateComment := getValidateComment(field)
+	if p.Description != "" && validateComment != "" {
+		p.Description = p.Description + "," + validateComment
+	} else if validateComment != "" {
+		p.Description = validateComment
+	}
 	p.In = "query"
 	p.Required = generator.GetFieldRequired(field, t.Reg, input)
 	typ, isArray, format := getFieldSwaggerType(field)
@@ -206,6 +215,12 @@ func (t *swaggerGen) schemaForField(file *descriptor.FileDescriptorProto,
 		gen.Error(err, "comment not found err %+v")
 	}
 	schema.Description = strings.Trim(fComment.Leading, "\n\r ")
+	validateComment := getValidateComment(field)
+	if schema.Description != "" && validateComment != "" {
+		schema.Description = schema.Description + "," + validateComment
+	} else if validateComment != "" {
+		schema.Description = validateComment
+	}
 	typ, isArray, format := getFieldSwaggerType(field)
 	if !generator.IsScalar(field) {
 		if generator.IsMap(field, t.Reg) {
@@ -300,4 +315,27 @@ func getFieldSwaggerType(field *descriptor.FieldDescriptorProto) (typeName strin
 		isArray = true
 	}
 	return
+}
+
+func getValidateComment(field *descriptor.FieldDescriptorProto) string {
+	var (
+		tags []reflect.StructTag
+	)
+	//get required info from gogoproto.moretags
+	moretags := tag.GetMoreTags(field)
+	if moretags != nil {
+		tags = []reflect.StructTag{reflect.StructTag(*moretags)}
+	}
+	validateTag := tag.GetTagValue("validate", tags)
+
+	// trim
+	regStr := []string{
+		"required *,*",
+		"omitempty *,*",
+	}
+	for _, v := range regStr {
+		re, _ := regexp.Compile(v)
+		validateTag = re.ReplaceAllString(validateTag, "")
+	}
+	return validateTag
 }

@@ -2,13 +2,11 @@ package main
 
 import (
 	"os/exec"
-
-	"github.com/urfave/cli"
 )
 
 const (
-	_getSwaggerGen = "go get -u github.com/bilibili/kratos/tool/protobuf/protoc-gen-bswagger"
-	_swaggerProtoc = "protoc --proto_path=%s --proto_path=%s --proto_path=%s --bswagger_out=explicit_http=true:."
+	_getSwaggerGen = "go get -u github.com/go-kratos/kratos/tool/protobuf/protoc-gen-bswagger"
+	_swaggerProtoc = "protoc --proto_path=%s --proto_path=%s --proto_path=%s --bswagger_out=:."
 )
 
 func installSwaggerGen() error {
@@ -20,6 +18,6 @@ func installSwaggerGen() error {
 	return nil
 }
 
-func genSwagger(ctx *cli.Context) error {
-	return generate(ctx, _swaggerProtoc)
+func genSwagger(files []string) error {
+	return generate(_swaggerProtoc, files)
 }
